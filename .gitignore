@@ -1,0 +1,10 @@
+__pycache__/
+.env
+app.py
+Medicine Data Till 11-10-24.json
+Pharma API Data.json
+products.json
+RD.md
+test_bot.py
+test.json
+train.ipynb
