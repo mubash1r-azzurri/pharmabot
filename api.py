@@ -114,27 +114,7 @@ def generate_response(
     answer = response.choices[0].message.content
     return markdown.markdown(answer)[3:-4]
 
-def file_search(description:str):
-    pass
-
-@app.post('/chatbot/{chatbot_id}/chat')
-async def chat(
-    chatbot_id:str,
-    chat_history:ChatHistory,
-    language:str=Query('english'),
-    query:str=Query(...) 
-):
-    bot_settings = load_or_create_bot_settings()
-    # chat_history = chat_history.data[-bot_settings[chatbot_id]["max_chat_history_length"]:]
-    chat_history = chat_history.data
-    
-    chat_history += [{"role":"user","content":query}] 
-
-    chatbots = list_folders('database')
-    if chatbots:
-        if chatbot_id not in chatbots:
-            error_message = {"status":404,"message":f"No data found for the provided chatbot id."}
-            return JSONResponse(content=error_message, status_code=404)  
+def file_search(description:str) -> dict:
     embeddings = OpenAIEmbeddings()
     docs = None
     persist_directory = f'database'
@@ -149,25 +129,43 @@ async def chat(
     
       
         retriever =pdfs_vector_db.as_retriever(search_type="mmr")
-        docs = retriever.get_relevant_documents(query,k=3)
+        docs = retriever.get_relevant_documents(description,k=5)
     else:
-        error_message = {"status":403,"message":f"No Trained PDFs Found."}
-        return JSONResponse(content=error_message, status_code=403)  
+        return {"search_results":f"No Results found!"}
+          
 
-    found_pdfs = ""
+    found_meds = ""
     for i, doc in enumerate(docs):
-        found_pdfs += str(f"{i + 1}. {doc.page_content} \n")
+        found_meds += str(f"{i + 1}. {doc.page_content} \n")
+        
+    return {"search_results":found_meds}
+
+@app.post('/chatbot/{chatbot_id}/chat')
+async def chat(
+    chatbot_id:str,
+    chat_history:ChatHistory,
+    language:str=Query('english'),
+    query:str=Query(...) 
+):
+    bot_settings = load_or_create_bot_settings()
+    # chat_history = chat_history.data[-bot_settings[chatbot_id]["max_chat_history_length"]:]
+    chat_history = chat_history.data
+    
+    chat_history += [{"role":"user","content":query}] 
+
+
+    found_meds = file_search(query)
 
     try:
       
         message = generate_response(
-            vector_db_collection=found_pdfs,
+            vector_db_collection=found_meds,
             previous_history=chat_history,
             chatbot_id=chatbot_id,
             language=language,
             bot_settings=bot_settings
         )
-        chat_history.append({"role":"assistant","content":f"BACKLOG:\n{found_pdfs}\n"+message})
+        chat_history.append({"role":"assistant","content":f"BACKLOG:\n{found_meds}\n"+message})
 
         successful_response = {'status': 200,'message': message, 'memory_backlog': chat_history}
         return JSONResponse(content=successful_response, status_code=200)
