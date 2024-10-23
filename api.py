@@ -21,7 +21,6 @@ You are Given a set of documents you have to answer user on the basis of the the
 Never Hallucinate. 
 Always try to read context in more depth to understand its meaning and answer to user accordingly."""
 def load_or_create_bot_settings():
-    # print("loading bot settings...")
     bot_settings = {}
     bot_settings["max_chat_history_length"] = 10
     file_path = "database/bot_settings.json"
@@ -33,13 +32,13 @@ def load_or_create_bot_settings():
             json.dump(bot_settings, file, indent=4)
     return bot_settings
 load_or_create_bot_settings()
-async def save_bot_settings(data):
+def save_bot_settings(data):
     file_path = 'database/bot_settings.json'
     with open(file_path, 'w') as file:
         json.dump(data, file, indent=4)
     return data
 
-async def list_folders(directory_path):
+def list_folders(directory_path):
     try:
         folder_names = [folder for folder in os.listdir(directory_path) if os.path.isdir(os.path.join(directory_path, folder))]
         if folder_names == []:
@@ -90,18 +89,16 @@ ai_tools = [
         }
     }
 ]
-async def generate_response(
+def generate_response(
         previous_history=[],
         vector_db_collection=None,
         chatbot_id="chatpdf",
         language="english",
         bot_settings = {}
     ):
-    # print("- GPT is Writing Answer...")
     
     prompt = f"""{bot_settings[chatbot_id]["prompt"]}\n
     {vector_db_collection}\n
-    always speak in {language} language.
     """
     new_messages = [
             {
@@ -115,9 +112,10 @@ async def generate_response(
         max_tokens=bot_settings[chatbot_id]["max_tokens"],
     )
     answer = response.choices[0].message.content
-    # print("Message Generated...")
-    # print("Sending Response back...")
     return markdown.markdown(answer)[3:-4]
+
+def file_search(description:str):
+    pass
 
 @app.post('/chatbot/{chatbot_id}/chat')
 async def chat(
@@ -127,17 +125,12 @@ async def chat(
     query:str=Query(...) 
 ):
     bot_settings = load_or_create_bot_settings()
-    # print(bot_settings)
-    # print("Request Received in Chat Endpoint...")
     # chat_history = chat_history.data[-bot_settings[chatbot_id]["max_chat_history_length"]:]
     chat_history = chat_history.data
     
-    # print(chat_history)
-    # print(len(chat_history))
     chat_history += [{"role":"user","content":query}] 
-    print(chat_history)
-    # print(len(chat_history))
-    chatbots = await list_folders('database')
+
+    chatbots = list_folders('database')
     if chatbots:
         if chatbot_id not in chatbots:
             error_message = {"status":404,"message":f"No data found for the provided chatbot id."}
@@ -145,31 +138,29 @@ async def chat(
     embeddings = OpenAIEmbeddings()
     docs = None
     persist_directory = f'database'
-    pdfs_indexes = await list_folders(persist_directory)
-    if pdfs_indexes != False:
-        # print("Found Vectorized PDFs!")
-        pdfs_vector_db = FAISS.load_local(f'database/{pdfs_indexes[0]}',embeddings,allow_dangerous_deserialization=True)
-        # print("Merging Vectorized PDFs..")
-        for index in range(1,len(pdfs_indexes)):
-            persist_directory = f'database/{pdfs_indexes[index]}'
+    med_indexes = list_folders(persist_directory)
+    if med_indexes != False:
+        pdfs_vector_db = FAISS.load_local(f'database/{med_indexes[0]}',embeddings,allow_dangerous_deserialization=True)
+        
+        for index in range(1,len(med_indexes)):
+            persist_directory = f'database/{med_indexes[index]}'
             newVectordb= FAISS.load_local(persist_directory, embeddings,allow_dangerous_deserialization=True)
             pdfs_vector_db.merge_from(newVectordb)
     
-        # print("Searching for Questions in PDFs VectorDB...")
+      
         retriever =pdfs_vector_db.as_retriever(search_type="mmr")
         docs = retriever.get_relevant_documents(query,k=3)
     else:
         error_message = {"status":403,"message":f"No Trained PDFs Found."}
         return JSONResponse(content=error_message, status_code=403)  
-    
-    # print("Found Something...")
+
     found_pdfs = ""
     for i, doc in enumerate(docs):
         found_pdfs += str(f"{i + 1}. {doc.page_content} \n")
 
     try:
       
-        message = await generate_response(
+        message = generate_response(
             vector_db_collection=found_pdfs,
             previous_history=chat_history,
             chatbot_id=chatbot_id,
@@ -181,7 +172,7 @@ async def chat(
         successful_response = {'status': 200,'message': message, 'memory_backlog': chat_history}
         return JSONResponse(content=successful_response, status_code=200)
     except Exception as e:
-        # print(str(e))
+        print(str(e))
         error_message = {"status":403,"message":"Something went wrong while Chatting please see system logs."}
         return JSONResponse(content=error_message, status_code=403)
 
